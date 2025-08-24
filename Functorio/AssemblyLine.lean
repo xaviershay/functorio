@@ -129,6 +129,105 @@ private def stationWithoutPipes (fabricator : Fabricator) (inputs:List Ingredien
     name := s!"stationWithoutPipes {reprStr outputs}"
   }
 
+private def stationMirroredWithoutPipes (fabricator : Fabricator) (inputs:List Ingredient) (outputs:List Ingredient)
+  (leftPipes: LeftPipes:= .none) (rightPipe : Option Ingredient := .none)
+  : Station (interfaceNS inputs outputs) (interfaceE rightPipe) (interfaceW leftPipes)  :=
+
+  let fabricator2 := fabricator 3 3
+  let fabricator := fabricator 3 0
+  let size := fabricator.width
+
+  let inputLen := inputs.length
+  let outputLen := outputs.length
+
+  if inputLen > 3 then error! "cannot use more than 3 belt inputs" else
+  if outputLen > 2 then error! "cannot use more than 2 belt outputs" else
+  if outputLen == 2 && inputLen == 3 then error! "2 belt outputs cannot be combined with 3 belt inputs" else
+
+  let inFarLeft    := beltline (x:=0) (height:=size*2) .N
+  let inNearLeft   := beltline (x:=1) (height:=size*2) .N
+
+  let inNearRight  := beltline (x:=size+4) (height:=size*2) .N ++ [inserter (size+3) 2 .E]
+  let outNearRight := beltline (x:=size+4) (height:=size*2) .S ++ [inserter (size+3) 2 .W, inserter (size+3) 3 .W]
+  let outFarRight  := beltline (x:=size+5) (height:=size*2) .S ++ [longInserter (size+3) 1 .W]
+
+  let leftPipeEntities := []
+  let rightPipeEntities := []
+  --let leftPipeEntities : List Entity :=
+  --  match leftPipes with
+  --  | .none => []
+  --  | .top _ => [pipeToGround 2 0 .E]
+  --  | .middle _ => [pipeToGround 2 1 .E]
+  --  | .topAndBottom _ _ => [pipeToGround 2 0 .E, pipeToGround 2 2 .E]
+
+  --let rightPipeEntities :=
+  --  if rightPipe.isNone then [] else [pipeToGround (size+3) 0 .W]
+
+  let leftInserters : List Entity :=
+    match leftPipes, inputLen with
+    --| .topAndBottom _ _, 0 => []
+    --| .topAndBottom _ _, 1 => [inserter 2 2 .W]
+    --| .topAndBottom _ _, _ => error! s!"cannot use two left pipes and more than 1 input {reprStr outputs}"
+    --| .middle _, 0 => []
+    --| .middle _, 1 => [inserter 2 2 .W]
+    --| .middle _, _ => [inserter 2 2 .W, longInserter 2 0 .W]
+    | _, 0 => []
+    | _, 1 => [inserter 2 2 .W, inserter 2 3 .W]
+    | _, _ => [inserter 2 2 .W, longInserter 2 1 .W]
+
+  let interfaceNS : List InterfaceImpl :=[
+     -- inputs belts
+     if inputLen > 1 then [0] else [],
+     if inputLen > 0 then [1] else [],
+     if inputLen > 2 then [(size+4)] else [],
+
+    -- output belts
+    match outputs.length with
+    | 0 => []
+    | 1 => if inputLen > 2 then [(size+5)] else [(size+4)]
+    | _ => [size+4, size+5]
+  ].flatten
+
+  let interfaceE : List InterfaceImpl := if rightPipe.isNone then [] else [0]
+  let interfaceW : List InterfaceImpl := match leftPipes with
+  | .none => []
+  | .top _ => [0]
+  | .middle _ => [1]
+  | .topAndBottom _ _ => [0,2]
+
+  crop {
+    width:= size + 6,
+    height:= size * 2,
+    entities := [
+        --[fabricator, pole (3 + size/2) size],
+        [fabricator, fabricator2, pole 2 1],
+        -- input belts
+        if inputLen > 0 then inNearLeft else [],
+        if inputLen > 1 then inFarLeft else [],
+        if inputLen > 2 then inNearRight else [],
+
+        -- output belts
+        match outputs.length with
+        | 0 => []
+        | 1 => if inputLen > 2 then outFarRight else outNearRight
+        | _ => outFarRight ++ outNearRight,
+
+        -- access
+        leftInserters,
+        leftPipeEntities,
+        rightPipeEntities
+      ].flatten,
+    interface := {
+      n := interfaceNS.castToVector!
+      e := interfaceE.castToVector!
+      s := interfaceNS.castToVector!
+      w := interfaceW.castToVector!
+    }
+    name := s!"stationWithoutPipes {reprStr outputs}"
+  }
+#eval(stationMirroredWithoutPipes furnace [Ingredient.ironOre] [Ingredient.ironPlate])
+
+
 private def poweredChemicalPlant (recipe : String) (pipesIn:List Ingredient) (pipesOut:List Ingredient)
 : Station [] (pipesOut.map (.,.E)) (pipesIn.map (.,.E))
 :=
@@ -516,6 +615,22 @@ def station (recipeName:RecipeName) : Station (stationInterface recipeName) :=
 
   factory.setName (reprStr recipeName)
 
+def stationMirrored (recipeName:RecipeName) : Station (stationInterface recipeName) :=
+  let recipe := recipeName.getRecipe
+  let fabricator :=
+    match recipeName with
+    | .copperPlate
+    | .ironPlate
+    | .steelPlate
+    | .stoneBrick => furnace
+
+    | _ => assembler "not-yet-supported"
+
+  let factory : Station (stationInterface recipeName) :=
+    let recipe := recipeName.getRecipe
+    stationMirroredWithoutPipes fabricator (recipe.inputs.map Prod.snd) (recipe.outputs.map Prod.snd)
+
+  factory.setName (reprStr recipeName)
 -- Item's per minute
 @[simp]
 def throughput (recipeName:RecipeName) (stations:Nat) (items:Fraction) : Fraction :=
@@ -660,6 +775,35 @@ def assemblyLine [Config] (recipeName:RecipeName) (stations:Nat) : Factory [] []
 
     capN (columnList factories.toList.reverse)
 
+def assemblyLineMirrored [Config] (recipeName:RecipeName) (stations:Nat) : Factory [] [] (stationInterface recipeName) [] :=
+  Id.run do
+    let output := recipeName.getRecipe.outputs[0]!
+    let stationOutput := throughput recipeName 1 output.fst
+    let station := stationMirrored recipeName
+    let mut factories : Array (Factory (stationInterface recipeName) [] (stationInterface recipeName) []) := #[
+      bigPoleInsert station.interface.s,
+      providerChestInsert recipeName station.interface.s,
+      roboportInsert station.interface.s
+    ]
+    let mut outputSinceBalance : Fraction := 0
+    let mut distanceFromRoboport : Nat := 0
+
+    for _ in List.range (stations / 2) do
+      if !output.snd.isLiquid && outputSinceBalance + stationOutput > expressBeltHalfThroughput then
+        factories := factories.push (outputBalancerInsert station.interface.s)
+        outputSinceBalance := 0
+        distanceFromRoboport := distanceFromRoboport + 4
+
+      if distanceFromRoboport + station.height > maxRoboportLogisticsDistance then
+        factories := factories.push (roboportInsert station.interface.s)
+        distanceFromRoboport := 0
+
+      factories := factories.push station
+      outputSinceBalance := outputSinceBalance + stationOutput
+      distanceFromRoboport := distanceFromRoboport + station.height
+
+    capN (columnList factories.toList.reverse)
+
 def tupleType {T} (ts:List T) (type:T->Type) : Type :=
   match ts with
   | [] => Unit
@@ -699,6 +843,17 @@ def processBusAssemblyLineArguments
 def busAssemblyLine [config:Config] (recipeName: RecipeName) (stations:Nat) : BusAssemblyLineType recipeName stations :=
   processBusAssemblyLineArguments recipeName stations fun inputs => do
     let factory := assemblyLine recipeName stations
+    let namedFactory := factory.setName s!"{stations}x{reprStr recipeName}"
+    let indexes <- busTapGeneric
+      inputs
+      (recipeName.getRecipe.outputs.map Prod.snd)
+      (unsafeFactoryCast namedFactory)
+      (adapterMinHeight := config.adapterMinHeight)
+    return tuple (fun (_, _) i => {index:=indexes[i]!})
+
+def busAssemblyLineMirrored [config:Config] (recipeName: RecipeName) (stations:Nat) : BusAssemblyLineType recipeName stations :=
+  processBusAssemblyLineArguments recipeName stations fun inputs => do
+    let factory := assemblyLineMirrored recipeName stations
     let namedFactory := factory.setName s!"{stations}x{reprStr recipeName}"
     let indexes <- busTapGeneric
       inputs
