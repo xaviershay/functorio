@@ -207,6 +207,7 @@ instance : Config where
   generateRoboports := true
   providerChestCapacity := 3
   adapterMinHeight := 3
+  stationLayout := StationLayout.Standard
 
 #guard (bus do
   let ironOre <- input .ironOre 525

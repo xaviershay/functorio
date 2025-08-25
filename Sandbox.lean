@@ -1,7 +1,15 @@
 import Functorio
 
+instance factoryConfig : Config := {
+  generateBigPoles := false
+  generateRoboports := false
+  providerChestCapacity := 0
+  adapterMinHeight := 0
+  stationLayout := StationLayout.MirroredPair
+}
+
 def makeIron : IronOre 150 -> Bus (Iron 150) :=
-  busAssemblyLineMirrored .ironPlate 4
+  busAssemblyLine .ironPlate 4
 
 def testFactory := bus do
   let ironOre <- input .ironOre 150

@@ -225,7 +225,7 @@ private def stationMirroredWithoutPipes (fabricator : Fabricator) (inputs:List I
     }
     name := s!"stationWithoutPipes {reprStr outputs}"
   }
-#eval(stationMirroredWithoutPipes furnace [Ingredient.ironOre] [Ingredient.ironPlate])
+-- #eval(stationMirroredWithoutPipes furnace [Ingredient.ironOre] [Ingredient.ironPlate])
 
 
 private def poweredChemicalPlant (recipe : String) (pipesIn:List Ingredient) (pipesOut:List Ingredient)
@@ -616,7 +616,7 @@ def station (recipeName:RecipeName) : Station (stationInterface recipeName) :=
   factory.setName (reprStr recipeName)
 
 def stationMirrored (recipeName:RecipeName) : Station (stationInterface recipeName) :=
-  let recipe := recipeName.getRecipe
+  let _recipe := recipeName.getRecipe
   let fabricator :=
     match recipeName with
     | .copperPlate
@@ -746,11 +746,14 @@ def outputBalancerInsert {interface} (offsets : Vector InterfaceImpl interface.l
 
 def maxRoboportLogisticsDistance := 46
 
-def assemblyLine [Config] (recipeName:RecipeName) (stations:Nat) : Factory [] [] (stationInterface recipeName) [] :=
+def assemblyLine [config:Config] (recipeName:RecipeName) (stations:Nat) : Factory [] [] (stationInterface recipeName) [] :=
   Id.run do
     let output := recipeName.getRecipe.outputs[0]!
     let stationOutput := throughput recipeName 1 output.fst
-    let station := station recipeName
+    let station :=
+      match config.stationLayout with
+      | .MirroredPair =>  stationMirrored recipeName
+      | .Standard => station recipeName
     let mut factories : Array (Factory (stationInterface recipeName) [] (stationInterface recipeName) []) := #[
       bigPoleInsert station.interface.s,
       providerChestInsert recipeName station.interface.s,
@@ -759,36 +762,11 @@ def assemblyLine [Config] (recipeName:RecipeName) (stations:Nat) : Factory [] []
     let mut outputSinceBalance : Fraction := 0
     let mut distanceFromRoboport : Nat := 0
 
-    for _ in List.range stations do
-      if !output.snd.isLiquid && outputSinceBalance + stationOutput > expressBeltHalfThroughput then
-        factories := factories.push (outputBalancerInsert station.interface.s)
-        outputSinceBalance := 0
-        distanceFromRoboport := distanceFromRoboport + 4
+    let repetitions := match config.stationLayout with
+      | .MirroredPair => (stations + 1) / 2
+      | .Standard => stations
 
-      if distanceFromRoboport + station.height > maxRoboportLogisticsDistance then
-        factories := factories.push (roboportInsert station.interface.s)
-        distanceFromRoboport := 0
-
-      factories := factories.push station
-      outputSinceBalance := outputSinceBalance + stationOutput
-      distanceFromRoboport := distanceFromRoboport + station.height
-
-    capN (columnList factories.toList.reverse)
-
-def assemblyLineMirrored [Config] (recipeName:RecipeName) (stations:Nat) : Factory [] [] (stationInterface recipeName) [] :=
-  Id.run do
-    let output := recipeName.getRecipe.outputs[0]!
-    let stationOutput := throughput recipeName 1 output.fst
-    let station := stationMirrored recipeName
-    let mut factories : Array (Factory (stationInterface recipeName) [] (stationInterface recipeName) []) := #[
-      bigPoleInsert station.interface.s,
-      providerChestInsert recipeName station.interface.s,
-      roboportInsert station.interface.s
-    ]
-    let mut outputSinceBalance : Fraction := 0
-    let mut distanceFromRoboport : Nat := 0
-
-    for _ in List.range (stations / 2) do
+    for _ in List.range repetitions do
       if !output.snd.isLiquid && outputSinceBalance + stationOutput > expressBeltHalfThroughput then
         factories := factories.push (outputBalancerInsert station.interface.s)
         outputSinceBalance := 0
@@ -842,22 +820,11 @@ def processBusAssemblyLineArguments
 
 def busAssemblyLine [config:Config] (recipeName: RecipeName) (stations:Nat) : BusAssemblyLineType recipeName stations :=
   processBusAssemblyLineArguments recipeName stations fun inputs => do
-    let factory := assemblyLine recipeName stations
-    let namedFactory := factory.setName s!"{stations}x{reprStr recipeName}"
+    let factory := @assemblyLine config recipeName stations
+    let factory := factory.setName s!"{stations}x{reprStr recipeName}"
     let indexes <- busTapGeneric
       inputs
       (recipeName.getRecipe.outputs.map Prod.snd)
-      (unsafeFactoryCast namedFactory)
-      (adapterMinHeight := config.adapterMinHeight)
-    return tuple (fun (_, _) i => {index:=indexes[i]!})
-
-def busAssemblyLineMirrored [config:Config] (recipeName: RecipeName) (stations:Nat) : BusAssemblyLineType recipeName stations :=
-  processBusAssemblyLineArguments recipeName stations fun inputs => do
-    let factory := assemblyLineMirrored recipeName stations
-    let namedFactory := factory.setName s!"{stations}x{reprStr recipeName}"
-    let indexes <- busTapGeneric
-      inputs
-      (recipeName.getRecipe.outputs.map Prod.snd)
-      (unsafeFactoryCast namedFactory)
+      (unsafeFactoryCast factory)
       (adapterMinHeight := config.adapterMinHeight)
     return tuple (fun (_, _) i => {index:=indexes[i]!})
