@@ -129,7 +129,7 @@ private def stationWithoutPipes (fabricator : Fabricator) (inputs:List Ingredien
     name := s!"stationWithoutPipes {reprStr outputs}"
   }
 
-private def stationMirroredWithoutPipes (fabricator : Fabricator) (inputs:List Ingredient) (outputs:List Ingredient)
+private def stationMirroredWithoutPipes (fabricator : Fabricator) (first : Bool) (inputs:List Ingredient) (outputs:List Ingredient)
   (leftPipes: LeftPipes:= .none) (rightPipe : Option Ingredient := .none)
   : Station (interfaceNS inputs outputs) (interfaceE rightPipe) (interfaceW leftPipes)  :=
 
@@ -200,7 +200,8 @@ private def stationMirroredWithoutPipes (fabricator : Fabricator) (inputs:List I
     height:= size * 2,
     entities := [
         --[fabricator, pole (3 + size/2) size],
-        [fabricator, fabricator2, pole 2 1],
+        [fabricator, fabricator2, pole 2 0, pole 6 0],
+        if first then [pole 2 5, pole 6 5] else [],
         -- input belts
         if inputLen > 0 then inNearLeft else [],
         if inputLen > 1 then inFarLeft else [],
@@ -225,7 +226,7 @@ private def stationMirroredWithoutPipes (fabricator : Fabricator) (inputs:List I
     }
     name := s!"stationWithoutPipes {reprStr outputs}"
   }
--- #eval(stationMirroredWithoutPipes furnace [Ingredient.ironOre] [Ingredient.ironPlate])
+#eval(stationMirroredWithoutPipes furnace true [Ingredient.ironOre] [Ingredient.ironPlate])
 
 
 private def poweredChemicalPlant (recipe : String) (pipesIn:List Ingredient) (pipesOut:List Ingredient)
@@ -615,7 +616,7 @@ def station (recipeName:RecipeName) : Station (stationInterface recipeName) :=
 
   factory.setName (reprStr recipeName)
 
-def stationMirrored (recipeName:RecipeName) : Station (stationInterface recipeName) :=
+def stationMirrored (recipeName:RecipeName) (first:Bool) : Station (stationInterface recipeName) :=
   let _recipe := recipeName.getRecipe
   let fabricator :=
     match recipeName with
@@ -628,7 +629,7 @@ def stationMirrored (recipeName:RecipeName) : Station (stationInterface recipeNa
 
   let factory : Station (stationInterface recipeName) :=
     let recipe := recipeName.getRecipe
-    stationMirroredWithoutPipes fabricator (recipe.inputs.map Prod.snd) (recipe.outputs.map Prod.snd)
+    stationMirroredWithoutPipes fabricator first (recipe.inputs.map Prod.snd) (recipe.outputs.map Prod.snd)
 
   factory.setName (reprStr recipeName)
 -- Item's per minute
@@ -750,14 +751,14 @@ def assemblyLine [config:Config] (recipeName:RecipeName) (stations:Nat) : Factor
   Id.run do
     let output := recipeName.getRecipe.outputs[0]!
     let stationOutput := throughput recipeName 1 output.fst
-    let station :=
+    let stationBuilder :=
       match config.stationLayout with
-      | .MirroredPair =>  stationMirrored recipeName
+      | .MirroredPair =>  stationMirrored recipeName true
       | .Standard => station recipeName
     let mut factories : Array (Factory (stationInterface recipeName) [] (stationInterface recipeName) []) := #[
-      bigPoleInsert station.interface.s,
-      providerChestInsert recipeName station.interface.s,
-      roboportInsert station.interface.s
+      bigPoleInsert stationBuilder.interface.s,
+      providerChestInsert recipeName stationBuilder.interface.s,
+      roboportInsert stationBuilder.interface.s
     ]
     let mut outputSinceBalance : Fraction := 0
     let mut distanceFromRoboport : Nat := 0
@@ -766,19 +767,23 @@ def assemblyLine [config:Config] (recipeName:RecipeName) (stations:Nat) : Factor
       | .MirroredPair => (stations + 1) / 2
       | .Standard => stations
 
-    for _ in List.range repetitions do
+    for i in List.range repetitions do
+      let stationBuilder :=
+        match config.stationLayout with
+        | .MirroredPair =>  stationMirrored recipeName (i == 0)
+        | .Standard => station recipeName
       if !output.snd.isLiquid && outputSinceBalance + stationOutput > expressBeltHalfThroughput then
-        factories := factories.push (outputBalancerInsert station.interface.s)
+        factories := factories.push (outputBalancerInsert stationBuilder.interface.s)
         outputSinceBalance := 0
         distanceFromRoboport := distanceFromRoboport + 4
 
-      if distanceFromRoboport + station.height > maxRoboportLogisticsDistance then
-        factories := factories.push (roboportInsert station.interface.s)
+      if distanceFromRoboport + stationBuilder.height > maxRoboportLogisticsDistance then
+        factories := factories.push (roboportInsert stationBuilder.interface.s)
         distanceFromRoboport := 0
 
-      factories := factories.push station
+      factories := factories.push stationBuilder
       outputSinceBalance := outputSinceBalance + stationOutput
-      distanceFromRoboport := distanceFromRoboport + station.height
+      distanceFromRoboport := distanceFromRoboport + stationBuilder.height
 
     capN (columnList factories.toList.reverse)
 
