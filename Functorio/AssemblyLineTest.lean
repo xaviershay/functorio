@@ -344,3 +344,72 @@ instance : Config where
 >→→→↑
 
 "
+
+-- Station should have inserters in the middle
+#guard (stationMirrored .ironPlate false).toAscii ==s!"
+ ^     v
+ ↑⚡***⚡↓
+ ↑ *F* ↓
+ ↑⇨***⇨↓
+ ↑⇨***⇨↓
+ ↑ *F* ↓
+ ↑ *** ↓
+ ^     v
+"
+
+-- First station should have poles at both top and bottom
+#guard (stationMirrored .ironPlate true).toAscii ==s!"
+ ^     v
+ ↑⚡***⚡↓
+ ↑ *F* ↓
+ ↑⇨***⇨↓
+ ↑⇨***⇨↓
+ ↑ *F* ↓
+ ↑⚡***⚡↓
+ ^     v
+"
+
+-- StationLayout.MirroredPair should use mirrored paid station layout, and work
+-- with all the extras like roboports.
+instance : Config where
+  generateBigPoles := true
+  generateRoboports := true
+  providerChestCapacity := 3
+  adapterMinHeight := 3
+  stationLayout := StationLayout.MirroredPair
+
+#guard (bus do
+  let ironOre <- input .ironOre 150
+  let _ <- busAssemblyLine .ironPlate 4 ironOre
+).toAscii = s!"
+
+
+ ↑⚡***⚡↓
+ ↑ *F* ↓
+ ↑⇨***⇨↓
+ ↑⇨***⇨↓
+ ↑ *F* ↓
+ ↑ *** ↓
+ ↑⚡***⚡↓
+ ↑ *F* ↓
+ ↑⇨***⇨↓
+ ↑⇨***⇨↓
+ ↑ *F* ↓
+ ↑⚡***⚡↓
+ ↑ ****↓
+ ↑ ****↓
+ ↑ **R*↓
+ ↑ ****↓
+ ↑     ↓
+ ↑  ⚡🄿⇦↓
+ ↑     ↓
+ ↑     ↓
+ ↑  ** ↓
+ ↑  *↯ ↓
+ ↑ ↓←←←←
+ ↑ ↓
+ ↑←↓
+  ↑↓
+>→↑→→→→→>
+
+"
